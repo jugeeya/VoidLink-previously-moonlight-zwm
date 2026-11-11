@@ -1,0 +1,48 @@
+name: Build unsigned IPAs
+on:
+  workflow_dispatch:
+  push:
+    branches: [build-ipas]
+
+jobs:
+  build:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: VoidLink
+            sdk: iphoneos
+            platform: iOS
+          - scheme: VoidLink TV
+            sdk: appletvos
+            platform: tvOS
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Show Xcode and schemes
+        run: |
+          xcodebuild -version
+          xcodebuild -list -project VoidLink.xcodeproj
+      - name: Download platform if missing
+        run: xcodebuild -downloadPlatform ${{ matrix.platform }} || true
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project VoidLink.xcodeproj -scheme "${{ matrix.scheme }}" \
+            -configuration Release -sdk ${{ matrix.sdk }} \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 200
+      - name: Package IPA
+        run: |
+          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" | head -n1)
+          echo "App: $APP"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          cd out && zip -qry "../${{ matrix.platform }}-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-unsigned-ipa
+          path: ${{ matrix.platform }}-unsigned.ipa
